@@ -1,0 +1,260 @@
+---
+title: "MA615 Final Project"
+author: "Jingwen Xu"
+date: "2020/12/13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyquant)
+library(readr)
+library(gridExtra)
+library(kableExtra)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+  For this project, I choose three stocks - DIS, ALXN and AAPL - respectively from The Walt Disney Company, Alexion Pharmaceuticals, Inc. and Apple Inc based on the advise from *BlueRocke* to do investment decisions with 250000$. About the data query, you can see all the stock prices information such as open and close prices dating from 2020-07-01 to 2020-12-01 provided by Yahoo Finance. Before showing the portfolios, I make visualizations for each stock. From the line chart, it's simple and clear to track the close prices's up and down along with the date. And in the volume chart, I use the geom_segment() function to display daily volume. Lastly but most importantly, I decide three portfolio method, plotting portfolio growth and daily returns. Besides, I do the CAPM analysis referring to these portfolio and compare their returns to baseline returns set by XLK.
+  
+## Method
+
+### Import Data
+
+  In general, we should use *tq_get* function in *tidyquant* package to directly query the stock prices data from Yahoo Finance. However, there are sometimes web issue resulting in the failure to import the data. So, I read the data from the website link, and transform the data frame to tibble which is the data type needed by other tq functions.
+
+```{r echo=F,warning=F,message=F}
+#stockprices <- c("DIS", "ALXN", "AAPL") %>% tq_get(get  = "stock.prices", from = "2020-07-01", to = "2020-12-02")
+dis <- read.csv("https://query2.finance.yahoo.com/v7/finance/download/DIS?period1=1593561600&period2=1606838400&interval=1d&events=history&crumb=FHjgmp0Civ8")
+alxn <- read.csv("https://query2.finance.yahoo.com/v7/finance/download/ALXN?period1=1593561600&period2=1606838400&interval=1d&events=history&crumb=FHjgmp0Civ8")
+aapl <- read.csv("https://query2.finance.yahoo.com/v7/finance/download/AAPL?period1=1593561600&period2=1606838400&interval=1d&events=history&crumb=FHjgmp0Civ8")
+xlk <- read.csv("https://query2.finance.yahoo.com/v7/finance/download/XLK?period1=1593561600&period2=1606838400&interval=1d&events=history&crumb=FHjgmp0Civ8")
+dis$symbol <- "DIS"
+alxn$symbol <- "ALXN"
+aapl$symbol <- "AAPL"
+xlk$symbol <- "XLK"
+stockprices <- rbind(dis,alxn,aapl)
+stockprices <- stockprices[,c(8,1,2,3,4,5,7,6)]
+xlk <- xlk[,c(8,1,2,3,4,5,7,6)]
+colnames(stockprices) <- c("symbol","date","open","high","low","close","volume","adjusted")
+colnames(xlk) <- colnames(stockprices)
+stockprices <- as_tibble(stockprices)
+xlk <- as_tibble(xlk)
+stockprices$date <- as.Date(stockprices$date)
+xlk$date <- as.Date(xlk$date)
+kable(head(stockprices)) %>% kable_styling(font_size=6)
+```
+
+### Individual Asset Visualization
+
+  Before the portfolio, I visualize by line chart and volume chart to track the change of close prices and daily volume. Besides, I use *Sys.setlocale* function to deal with Chinese character showing in the x-axis.
+
+```{r echo=F,warning=F,message=F}
+Sys.setlocale("LC_TIME", "English")
+```
+
+  In the first plot, we can see that the close price value goes up and peaks in September and then falls but is still above the start for AAPL. ALXN's close price reaches bottom between August and September and soars all the way until December. For DIS, in general, the close price is on the rise despite of some ups and downs.
+
+```{r echo=F,warning=F,message=F}
+stockprices %>% ggplot(aes(x = date, y = close, color = symbol)) +
+    geom_line(size = 1) +
+    labs(title = "Stocks Line Chart",
+         x = "", y = "Closing Price") +
+    facet_wrap(~ symbol, scales = "free_y") +
+    theme_tq_dark() +
+    scale_color_tq(theme = "dark")
+```
+
+  With *geom_smooth* function, we can see the general change of volume in the second plot. For AAPL, the volume shows normal distribution, peaking in September. The volume of ALXN peaks in October, then falling severely until December. And the volume of DIS reaches bottom in October with similar volumes for other time.
+
+```{r echo=F,warning=F,message=F}
+stockprices %>% ggplot(aes(x = date, y = volume)) +
+    geom_segment(aes(xend = date, yend = 0, color = volume)) + 
+    geom_smooth(method = "loess", se = FALSE) +
+    labs(title = "Stocks Volume Chart", 
+         subtitle = "Charting Daily Volume", 
+         y = "Volume", x = "") +
+  facet_wrap(~ symbol, scales = "free_y") +
+    theme_tq() + theme(legend.position = "none") 
+```
+
+### Multiple Portfolio
+
+I set three portfolio:
+
+50% DIS, 25% ALXN, 25% AAPL
+
+25% DIS, 50% ALXN, 25% AAPL
+
+25% DIS, 25% ALXN, 50% AAPL
+
+  Firstly, I do the performance analysis for these portfolio with Capital Asset Pricing Model(CAPM). From the result, we can see that the alpha value of portfolio one is largest which means that it is likely to be the best one among these portfolio. But I think that all these portfolios are not really satisfactory.
+
+
+```{r echo=F,warning=F,message=F}
+stock_return <- stockprices %>% group_by(symbol) %>%
+    tq_transmute(select     = adjusted, 
+                 mutate_fun = periodReturn, 
+                 period     = "daily", 
+                 col_rename = "Ra")
+baseline_return <- xlk %>% 
+  tq_transmute(select     = adjusted, 
+                 mutate_fun = periodReturn, 
+                 period     = "daily", 
+                 col_rename = "Rb")
+stock_return_multi <- stock_return %>% tq_repeat_df(n = 3)
+weights <- c(
+    0.50, 0.25, 0.25,
+    0.25, 0.50, 0.25,
+    0.25, 0.25, 0.50
+)
+stocks <- c("DIS", "ALXN", "AAPL")
+weights_table <-  tibble(stocks) %>%
+    tq_repeat_df(n = 3) %>%
+    bind_cols(tibble(weights)) %>%
+    group_by(portfolio)
+portfolio_return_multi <- stock_return_multi %>%  
+  tq_portfolio(assets_col  = symbol, 
+                 returns_col = Ra, 
+                 weights     = weights_table, 
+                 col_rename  = "Ra")
+
+RaRb_multiple_portfolio <- left_join(portfolio_return_multi, 
+                                     baseline_return,
+                                     by = "date")
+rarb <- RaRb_multiple_portfolio %>%
+    tq_performance(Ra = Ra, Rb = Rb, performance_fun = table.CAPM)
+kable(rarb)
+```
+  
+  
+  With 250000 dollars as my investment funds starting on 2020-07-01, I plot the portfolio growth chart to track the portfolio values and return cash on 2020-12-01. From the plot, we can see that the general trend of the 3rd portfolio is the best and that of the 2rd portfolio is the worst. It's obvious that the 3rd portfolio value is nearly always above the other two which could be corresponded to its largest beta value in the former CAPM analysis.
+
+
+```{r echo=F,warning=F,message=F}
+portfolio_growth_multi <- stock_return_multi %>%
+    tq_portfolio(assets_col   = symbol, 
+                 returns_col  = Ra, 
+                 weights      = weights_table, 
+                 col_rename   = "investment.growth",
+                 wealth.index = TRUE) %>%
+    mutate(investment.growth = investment.growth * 250000)
+
+portfolio_growth_multi %>%
+    ggplot(aes(x = date, y = investment.growth, color = factor(portfolio))) +
+    geom_line(size = 2) +
+    labs(title = "Portfolio Growth",
+         subtitle = "Comparing Multiple Portfolios",
+         x = "", y = "Portfolio Value",
+         color = "Portfolio") +
+    geom_smooth(method = "loess") +
+    theme_tq() +
+    scale_color_tq()
+```
+
+  Then, I add the daily return chart for these three portfolio, and we still can see that the return on 2020-12-01 is the largest for the 3rd portfolio. Besides, the scale of the 3rd portfolio is bigger than the other meaning that its return is also in general the largest.
+
+```{r echo=F,warning=F,message=F}
+wts_1 <- c(0.50, 0.25, 0.25)
+portfolio_return_1 <- stock_return %>%
+    tq_portfolio(assets_col  = symbol, 
+                 returns_col = Ra, 
+                 weights     = wts_1, 
+                 col_rename  = "Ra")
+p1 <- portfolio_return_1 %>%
+    ggplot(aes(x = date, y = Ra)) +
+    geom_bar(stat = "identity", fill = palette_light()[[1]]) +
+    labs(title = "Portfolio Returns",
+         subtitle = "50% DIS, 25% ALXN, 25% AAPL",
+         x = "", y = "Daily Returns") +
+    geom_smooth(method = "lm") +
+    theme_tq() +
+    scale_color_tq()
+
+wts_2 <- c(0.25, 0.50, 0.25)
+portfolio_return_2 <- stock_return %>%
+    tq_portfolio(assets_col  = symbol, 
+                 returns_col = Ra, 
+                 weights     = wts_2, 
+                 col_rename  = "Ra")
+p2 <- portfolio_return_2 %>%
+    ggplot(aes(x = date, y = Ra)) +
+    geom_bar(stat = "identity", fill = palette_light()[[1]]) +
+    labs(title = "Portfolio Returns",
+         subtitle = "25% DIS, 50% ALXN, 25% AAPL",
+         x = "", y = "Daily Returns") +
+    geom_smooth(method = "lm") +
+    theme_tq() +
+    scale_color_tq()
+
+wts_3 <- c(0.25, 0.25, 0.50)
+portfolio_return_3 <- stock_return %>%
+    tq_portfolio(assets_col  = symbol, 
+                 returns_col = Ra, 
+                 weights     = wts_3, 
+                 col_rename  = "Ra")
+p3 <- portfolio_return_3 %>%
+    ggplot(aes(x = date, y = Ra)) +
+    geom_bar(stat = "identity", fill = palette_light()[[1]]) +
+    labs(title = "Portfolio Returns",
+         subtitle = "25% DIS, 25% ALXN, 50% AAPL",
+         x = "", y = "Daily Returns") +
+    geom_smooth(method = "lm") +
+    theme_tq() +
+    scale_color_tq()
+
+grid.arrange(arrangeGrob(p1,p2,p3,ncol=2))
+```
+
+  At last, combined with the result of revenue and its rate for each portfolio, we can make sure that we should choose the 3rd portfolio
+  
+```{r echo=F,warning=F,message=F}
+## revenue calculation
+revenue_1 <- portfolio_growth_multi$investment.growth[107]-250000
+revenue_2 <- portfolio_growth_multi$investment.growth[214]-250000
+revenue_3 <- portfolio_growth_multi$investment.growth[321]-250000
+revenue <- c(revenue_1,revenue_2,revenue_3)
+## revenue rate calculation
+rate_1 <- revenue_1/250000
+rate_2 <- revenue_2/250000
+rate_3 <- revenue_3/250000
+rate <- c(rate_1,rate_2,rate_3)
+
+portfolio <- c("1","2","3")
+data <- data.frame(portfolio,revenue,rate)
+kable(data)
+```
+
+
+## Limitation
+
+  In this project, in order to be simple and convenient, I assume that all the 250000 dollars are put into stock market without transaction until 2020-12-01. In reality, we usually trade in time intervals to complete the portfolio so that we may maximize the benefit based on our prediction about the stock trend.
+  For further study, I should focus on the investment advice and try more possible portfolio with other stocks. Besides, due to the web issue, I cannot query the dividends data from yahoo finance website. I could try to find the information from other resources and do deeper analysis.
+
+## Bibliography
+
+(1)H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New
+  York, 2016.
+
+(2)Hadley Wickham, Romain Fran?ois, Lionel Henry and Kirill Müller (2020). dplyr: A
+  Grammar of Data Manipulation. R package version 1.0.2.
+  https://CRAN.R-project.org/package=dplyr
+
+(3)Matt Dancho and Davis Vaughan (2020). tidyquant: Tidy Quantitative Financial
+  Analysis. R package version 1.0.2. https://CRAN.R-project.org/package=tidyquant
+  
+(4)Hadley Wickham and Jim Hester (2020). readr: Read Rectangular Text Data. R
+  package version 1.4.0. https://CRAN.R-project.org/package=readr
+
+(5)Baptiste Auguie (2017). gridExtra: Miscellaneous Functions for "Grid" Graphics. R
+  package version 2.3. https://CRAN.R-project.org/package=gridExtra
+
+(6)Hao Zhu (2020). kableExtra: Construct Complex Table with 'kable' and Pipe Syntax.
+  R package version 1.2.1. https://CRAN.R-project.org/package=kableExtra
+
+(7)tidyquant 1.0.2. (2020). Performance Analysis with tidyquant. Available from     https://business-science.github.io/tidyquant/articles/TQ05-performance-analysis-with-tidyquant.html
+
+(8)yahoo!finance. (2020). Available from https://finance.yahoo.com/recent-quotes
+
+(9)BlueRocke. (2020). INVESTMENT INSIGHTS ON THE PATH AHEAD TO A MARKET RECOVERY. Available from https://bluerock.com/
